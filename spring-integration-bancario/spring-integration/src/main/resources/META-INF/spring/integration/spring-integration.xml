@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ws="http://www.springframework.org/schema/integration/ws"
+	xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:http="http://www.springframework.org/schema/integration/http"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+	http://www.springframework.org/schema/beans/spring-beans-3.0.xsd 
+	http://www.springframework.org/schema/context 
+	http://www.springframework.org/schema/context/spring-context-3.0.xsd 
+	http://www.springframework.org/schema/integration 
+	http://www.springframework.org/schema/integration/spring-integration-2.0.xsd 
+	http://www.springframework.org/schema/integration/ws http://www.springframework.org/schema/integration/ws/spring-integration-ws-2.0.xsd 
+	http://www.springframework.org/schema/integration/http 
+	http://www.springframework.org/schema/integration/http/spring-integration-http-2.0.xsd">
+
+
+	<context:component-scan base-package="org.example.spring.integration"></context:component-scan>
+	<context:property-placeholder location="classpath:springIntegration.properties" />
+	
+	
+	<!-- se crea el canal inputChannel -->
+	<int:channel id="inputChannel"/>	
+	<!-- gateway de entrada para las peticiones web, pasara los datos al canal inputChannel -->
+	<ws:inbound-gateway id="wsInboungGateway" request-channel="inputChannel"/>
+	<!-- se define un service activator que ingresa a la clase UsuarioEnpoint y envia el mensaje al canal idUsuarioChannel -->
+	<int:service-activator input-channel="inputChannel" ref="usuarioEnpoint" output-channel="idUsuarioChannel"></int:service-activator>
+		
+	
+	<int:channel id="idUsuarioChannel"/>
+	<!-- log por cada mensaje  -->
+	<int:logging-channel-adapter id="loggingChannel" level="INFO" expression="'Received request with ' + payload" 
+			channel="idUsuarioChannel"/>
+	<!-- gateway que recupera los datos del servicio web appClienteEntidad, y envia los datos al canal clienteEntidadSplitterChannel  -->
+	<ws:outbound-gateway id="idUsuarioGateway" 
+			request-channel="idUsuarioChannel" 
+			uri="http://${ws.usuarioentidad.host}:${ws.usuarioentidad.port}/${ws.usuarioentidad.context}" 
+			marshaller="clienteEntidadMarshaller" reply-channel="clienteEntidadSplitterChannel"/>	
+	<!-- clase que se encarga de transformar los datos para el canal -->		
+	<bean id="clienteEntidadMarshaller"
+			class="org.example.spring.integration.usuario.ClienteEntidadMarshaller" />
+				
+			
+	<!-- canal clienteEntidadSplitterChannel -->	
+	<int:channel id="clienteEntidadSplitterChannel" />
+	<!-- separamos el mensaje de acuerdo a la entidad bancaria -->
+	<int:splitter  input-channel="clienteEntidadSplitterChannel"
+		output-channel="clienteEntidadRouterChannel" ref="clienteEntidadSplitter" method="getSplit"></int:splitter>
+	
+	<!-- canal para enrutar los mensajes de acuerdo a la entidad bancaria -->	
+	<int:channel id="clienteEntidadRouterChannel"/>	
+	<int:recipient-list-router  input-channel="clienteEntidadRouterChannel">
+		<int:recipient channel="channelBVVA" selector-expression="payload.banco.equals('BVVA')"/>
+		<int:recipient channel="channelSCOTIBANK" selector-expression="payload.banco.equals('SCOTIBANK')"/>
+	</int:recipient-list-router>
+		
+	
+	<!-- canal para invocar al servicio SOAP appClienteCuentas (servicio para BVVA) -->
+	<int:channel id="channelBVVA"/>
+	<ws:outbound-gateway id="outboundGatewayBVVA" 
+		request-channel="channelBVVA" 
+		uri="http://${ws.clientecCuenta.host}:${ws.clientecCuenta.port}/${ws.clientecCuenta.context}"
+		marshaller="clienteCuentaMarshaller" 
+		reply-channel="aggregatorResponseChannel"/>
+	<bean id="clienteCuentaMarshaller" class="org.example.spring.integration.usuario.ClienteCuentaMarshaller"/>
+	
+	
+	<!-- canal para invocar al servicio REST appClienteCuentasRest (servicio para SCOTIBANK) -->
+	<int:channel id="channelSCOTIBANK" />
+	<http:outbound-gateway request-channel="channelSCOTIBANK"
+		reply-channel="aggregatorResponseChannel"
+		url="http://${ws.clientecCuenta.rest.host}:${ws.clientecCuenta.rest.port}/${ws.clientecCuenta.rest.context}/{codigo}"
+		http-method="GET" expected-response-type="java.lang.String"
+		message-converters="clienteCuentaConverterScoti">
+		<http:uri-variable name="codigo" expression="payload.codigo" />
+	</http:outbound-gateway>
+	
+	
+	<!-- canal para agrupar los mensajes y responder al usuario los datos obtenidos -->
+	<int:channel id="aggregatorResponseChannel"/>
+	<int:aggregator input-channel="aggregatorResponseChannel"
+		ref="cuentasAggregator" method="agregarCuentas" output-channel="cuentasResponseChannel"/>
+		
+	
+	<int:channel id="cuentasResponseChannel"/>
+	<int:service-activator input-channel="cuentasResponseChannel"  ref="responseClienteCuentasServiceActivator"/>
+	
+</beans>
