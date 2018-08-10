@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+	targetNamespace="http://www.example.org/cliente"
+	xmlns:tns="http://www.example.org/cliente-entidad"
+	elementFormDefault="qualified"
+	xmlns:pref="http://www.example.org/cliente">
+
+
+	<include schemaLocation="cliente.xsd"></include>
+	<element name="ClienteRequest">
+		<complexType>
+			<sequence>
+				<element name="dni" type="string"></element>
+				<element name="clave" type="string"></element>
+			</sequence>
+		</complexType>
+	</element>
+
+	<element name="ClienteEntidadResponse">
+		<complexType>
+			<sequence>
+				<element name="cliente" minOccurs="0" maxOccurs="unbounded"  type="pref:clienteType"></element>
+			</sequence>
+		</complexType>
+	</element>
+
+</schema>
